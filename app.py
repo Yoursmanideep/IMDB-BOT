@@ -1,14 +1,17 @@
 import os
 import asyncio
+import traceback
 from playwright.async_api import async_playwright
-
 
 SNAP_USERNAME = os.getenv("SNAP_USERNAME")
 SNAP_PASSWORD = os.getenv("SNAP_PASSWORD")
 
 
 async def main():
-    print("Starting Snapchat bot...")
+    print("=== SNAPCHAT BOT STARTING ===", flush=True)
+
+    print("Username loaded:", bool(SNAP_USERNAME), flush=True)
+    print("Password loaded:", bool(SNAP_PASSWORD), flush=True)
 
     if not SNAP_USERNAME:
         raise ValueError("SNAP_USERNAME is missing.")
@@ -17,48 +20,45 @@ async def main():
         raise ValueError("SNAP_PASSWORD is missing.")
 
     async with async_playwright() as p:
-        print("Launching Chromium...")
+        print("Launching Chromium...", flush=True)
 
         browser = await p.chromium.launch(
             headless=True,
             args=["--no-sandbox"]
         )
 
+        print("Browser launched.", flush=True)
+
         context = await browser.new_context()
         page = await context.new_page()
 
-        print("Opening Snapchat Web...")
+        print("Opening Snapchat Web...", flush=True)
+
         await page.goto(
             "https://web.snapchat.com",
             wait_until="domcontentloaded",
             timeout=120000
         )
 
-        print("Waiting for login fields...")
+        print("Snapchat page opened successfully.", flush=True)
 
-        # Wait for username and password inputs
-        await page.wait_for_selector('input[name="username"]', timeout=60000)
-        await page.wait_for_selector('input[name="password"]', timeout=60000)
+        print("Waiting for page to load...", flush=True)
+        await page.wait_for_timeout(10000)
 
-        print("Entering username...")
-        await page.fill('input[name="username"]', SNAP_USERNAME)
+        print("Current page title:", await page.title(), flush=True)
+        print("Current URL:", page.url, flush=True)
 
-        print("Entering password...")
-        await page.fill('input[name="password"]', SNAP_PASSWORD)
-
-        print("Clicking Log In...")
-        await page.click('button[type="submit"]')
-
-        print("Waiting for Snapchat to load after login...")
-        await page.wait_for_timeout(15000)
-
-        print("Login attempt completed.")
-
-        # Keep the bot running so we can inspect logs
+        # Keep alive
         while True:
+            print("Bot is still running...", flush=True)
             await asyncio.sleep(60)
-            print("Bot is still running...")
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except Exception as e:
+        print("=== ERROR OCCURRED ===", flush=True)
+        print(str(e), flush=True)
+        traceback.print_exc()
+        raise
