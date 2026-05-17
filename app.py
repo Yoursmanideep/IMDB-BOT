@@ -11,37 +11,53 @@ SNAP_USERNAME = os.getenv("SNAP_USERNAME")
 SNAP_PASSWORD = os.getenv("SNAP_PASSWORD")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
+# Persistent browser profile
 USER_DATA_DIR = "/app/snap_profile"
 
 
 # ==========================================
-# AI FUNCTION
+# AI FUNCTION (GROQ)
 # ==========================================
 def ask_ai(text):
-    response = requests.post(
-        "https://api.groq.com/openai/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {GROQ_API_KEY}",
-            "Content-Type": "application/json"
-        },
-        json={
-            "model": "llama-3.1-8b-instant",
-            "messages": [
-                {
-                    "role": "system",
-                    "content": "You are Rithu, a friendly girl. Reply naturally in 1-2 short lines."
-                },
-                {
-                    "role": "user",
-                    "content": text
-                }
-            ]
-        },
-        timeout=30
-    )
+    try:
+        response = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {GROQ_API_KEY}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": "llama-3.1-8b-instant",
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are Rithu, a 23-year-old girl. "
+                            "You are playful, warm, funny, and natural. "
+                            "Reply like a real human texter in 1-2 short lines."
+                        )
+                    },
+                    {
+                        "role": "user",
+                        "content": text
+                    }
+                ],
+                "temperature": 0.9
+            },
+            timeout=30
+        )
 
-    data = response.json()
-    return data["choices"][0]["message"]["content"].strip()
+        data = response.json()
+
+        if "choices" not in data:
+            print("GROQ ERROR:", data, flush=True)
+            return "Hey 😊"
+
+        return data["choices"][0]["message"]["content"].strip()
+
+    except Exception as e:
+        print("AI ERROR:", e, flush=True)
+        return "Oops 😅"
 
 
 # ==========================================
@@ -50,40 +66,37 @@ def ask_ai(text):
 async def login_if_needed(page):
     print("Checking login status...", flush=True)
 
+    # If URL does not contain "login", assume session is active
     if "login" not in page.url.lower():
         print("Already logged in.", flush=True)
         return
 
-    raise Exception("Login page detected. Session not saved correctly.")
+    print("Login page detected. Manual login may be required.", flush=True)
 
 
 # ==========================================
-# FIND CHATS
+# INSPECT PAGE
 # ==========================================
-async def inspect_chats(page):
-    print("Inspecting chat list...", flush=True)
+async def inspect_page(page):
+    print("Inspecting page...", flush=True)
 
-    # Wait for Snapchat UI to settle
     await page.wait_for_timeout(15000)
 
-    # Save screenshot for debugging
     await page.screenshot(path="/app/chat_debug.png")
     print("Screenshot saved: /app/chat_debug.png", flush=True)
 
-    # Get visible text on page
     all_text = await page.locator("body").inner_text()
 
     print("===== PAGE TEXT (FIRST 3000 CHARS) =====", flush=True)
     print(all_text[:3000], flush=True)
     print("===== END PAGE TEXT =====", flush=True)
 
-    # Try to collect clickable items that may be chats
     buttons = await page.locator('button, a, [role="button"]').all_inner_texts()
 
     print("===== POSSIBLE CHAT ITEMS =====", flush=True)
 
-    count = 0
     seen = set()
+    count = 0
 
     for item in buttons:
         item = item.strip()
@@ -99,7 +112,7 @@ async def inspect_chats(page):
         print(item, flush=True)
         count += 1
 
-        if count >= 10:
+        if count >= 20:
             break
 
     print("===== END CHAT ITEMS =====", flush=True)
@@ -111,14 +124,42 @@ async def inspect_chats(page):
 async def main():
     print("Starting Snapchat AI Bot...", flush=True)
 
+    if not SNAP_USERNAME:
+        raise ValueError("SNAP_USERNAME is missing.")
+    if not SNAP_PASSWORD:
+        raise ValueError("SNAP_PASSWORD is missing.")
+    if not GROQ_API_KEY:
+        raise ValueError("GROQ_API_KEY is missing.")
+
+    print("All environment variables loaded.", flush=True)
+
     async with async_playwright() as p:
         print("Launching persistent browser...", flush=True)
 
+        # Launch browser with anti-detection settings
         context = await p.chromium.launch_persistent_context(
             USER_DATA_DIR,
             headless=True,
-            args=["--no-sandbox"]
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/136.0.0.0 Safari/537.36"
+            ),
+            viewport={"width": 1366, "height": 768},
+            args=[
+                "--no-sandbox",
+                "--disable-blink-features=AutomationControlled",
+                "--disable-dev-shm-usage",
+                "--disable-web-security",
+            ]
         )
+
+        # Hide webdriver flag
+        await context.add_init_script("""
+        Object.defineProperty(navigator, 'webdriver', {
+            get: () => undefined
+        });
+        """)
 
         page = context.pages[0] if context.pages else await context.new_page()
 
@@ -135,12 +176,13 @@ async def main():
 
         await login_if_needed(page)
 
+        # Test AI
         print("AI TEST:", ask_ai("hi"), flush=True)
 
-        # NEW STEP: inspect chats
-        await inspect_chats(page)
+        # Inspect page contents
+        await inspect_page(page)
 
-        # Keep running
+        # Keep bot running
         while True:
             print("Bot is still running...", flush=True)
             await asyncio.sleep(60)
