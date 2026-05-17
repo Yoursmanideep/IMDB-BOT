@@ -1,3 +1,7 @@
+# ==========================================
+# PART 1 OF 2 — Imports, Config, AI Function
+# ==========================================
+
 import os
 import asyncio
 import traceback
@@ -72,89 +76,117 @@ async def login_if_needed(page):
     if "Log in to Snapchat" in body_text:
         print("Login page detected.", flush=True)
 
-        username_selector = 'input[placeholder="Username or email address"]'
+        # Try to auto-fill login form if possible
+        try:
+            print("Trying to locate username field...", flush=True)
 
-        print("Waiting for username field...", flush=True)
-        await page.wait_for_selector(username_selector, timeout=30000)
+            selectors = [
+                'input[placeholder="Username or email address"]',
+                'input[type="email"]',
+                'input[type="text"]'
+            ]
 
-        print("Entering username...", flush=True)
-        await page.fill(username_selector, SNAP_USERNAME)
+            username_selector = None
 
-        print("Waiting for password field...", flush=True)
-        await page.wait_for_selector('input[type="password"]', timeout=30000)
+            for selector in selectors:
+                try:
+                    await page.wait_for_selector(
+                        selector,
+                        timeout=5000
+                    )
+                    username_selector = selector
+                    print(
+                        f"Found username field: {selector}",
+                        flush=True
+                    )
+                    break
+                except:
+                    pass
 
-        print("Entering password...", flush=True)
-        await page.fill('input[type="password"]', SNAP_PASSWORD)
+            if username_selector:
+                print("Entering username...", flush=True)
+                await page.fill(
+                    username_selector,
+                    SNAP_USERNAME
+                )
 
-        print("Clicking Log in...", flush=True)
-        await page.locator('button:has-text("Log in")').first.click()
+                print(
+                    "Waiting for password field...",
+                    flush=True
+                )
+                await page.wait_for_selector(
+                    'input[type="password"]',
+                    timeout=10000
+                )
 
-        print("Waiting for login to complete...", flush=True)
+                print("Entering password...", flush=True)
+                await page.fill(
+                    'input[type="password"]',
+                    SNAP_PASSWORD
+                )
 
-        # Wait up to 60 seconds for login page to disappear
-        for i in range(12):
+                print("Clicking Log in...", flush=True)
+                await page.locator(
+                    'button:has-text("Log in")'
+                ).first.click()
+
+                print("Login submitted.", flush=True)
+
+        except Exception as e:
+            print(
+                "Could not auto-fill login form:",
+                str(e),
+                flush=True
+            )
+
+        print(
+            "Waiting up to 5 minutes for Snapchat verification...",
+            flush=True
+        )
+        print(
+            "Approve the login request on your phone if asked.",
+            flush=True
+        )
+# ==========================================
+# PART 2 OF 2 — Verification Wait and Main
+# ==========================================
+
+        # Wait up to 5 minutes (60 × 5 seconds)
+        for i in range(60):
             await page.wait_for_timeout(5000)
 
-            current_text = await page.locator("body").inner_text()
+            try:
+                current_text = await page.locator(
+                    "body"
+                ).inner_text()
+            except:
+                current_text = ""
 
+            # Login successful when login page disappears
             if "Log in to Snapchat" not in current_text:
-                print("Login successful.", flush=True)
+                print("Login successful!", flush=True)
                 print("Current URL:", page.url, flush=True)
                 return
 
-            print(f"Still waiting... ({(i + 1) * 5}s)", flush=True)
+            # Progress update every 30 seconds
+            if (i + 1) % 6 == 0:
+                elapsed = (i + 1) * 5
+                print(
+                    f"Still waiting... {elapsed} seconds",
+                    flush=True
+                )
 
-        print("Login may require verification (email/CAPTCHA).", flush=True)
+        print(
+            "Login not completed within 5 minutes.",
+            flush=True
+        )
+        print(
+            "Snapchat may require additional verification.",
+            flush=True
+        )
         return
 
     print("Already logged in.", flush=True)
-
-
-# ==========================================
-# PAGE INSPECTION
-# ==========================================
-async def inspect_page(page):
-    print("Inspecting page...", flush=True)
-
-    await page.wait_for_timeout(15000)
-
-    # Save screenshot for debugging
-    await page.screenshot(path="/app/chat_debug.png")
-    print("Screenshot saved: /app/chat_debug.png", flush=True)
-
-    # Extract visible page text
-    all_text = await page.locator("body").inner_text()
-
-    print("===== PAGE TEXT (FIRST 3000 CHARS) =====", flush=True)
-    print(all_text[:3000], flush=True)
-    print("===== END PAGE TEXT =====", flush=True)
-
-    # Extract clickable items
-    buttons = await page.locator('button, a, [role="button"]').all_inner_texts()
-
-    print("===== POSSIBLE CHAT ITEMS =====", flush=True)
-
-    seen = set()
-    count = 0
-
-    for item in buttons:
-        item = item.strip()
-
-        if len(item) < 2:
-            continue
-
-        if item in seen:
-            continue
-
-        seen.add(item)
-
-        print(item, flush=True)
-        count += 1
-
-        if count >= 20:
-            break
-
-    print("===== END CHAT ITEMS =====", flush=True)
 
 
 # ==========================================
@@ -175,7 +207,6 @@ async def main():
     async with async_playwright() as p:
         print("Launching persistent browser...", flush=True)
 
-        # Anti-detection browser settings
         context = await p.chromium.launch_persistent_context(
             USER_DATA_DIR,
             headless=True,
@@ -200,41 +231,41 @@ async def main():
         });
         """)
 
-        page = context.pages[0] if context.pages else await context.new_page()
+        page = (
+            context.pages[0]
+            if context.pages
+            else await context.new_page()
+        )
 
         print("Opening Snapchat Web...", flush=True)
 
-        # Use domcontentloaded because networkidle can hang forever
         await page.goto(
             "https://web.snapchat.com",
             wait_until="domcontentloaded",
             timeout=120000
         )
 
-        # Allow app to render
+        # Allow page to render
         await page.wait_for_timeout(15000)
 
         print("Title:", await page.title(), flush=True)
         print("URL:", page.url, flush=True)
 
-        # Attempt login if needed
+        # Login and wait for verification approval
         await login_if_needed(page)
 
         # Save screenshot after login attempt
         await page.screenshot(path="/app/after_login.png")
         print("Saved screenshot: /app/after_login.png", flush=True)
 
-        # Print final page state
+        # Final state
         print("Final Title:", await page.title(), flush=True)
         print("Final URL:", page.url, flush=True)
 
-        # Test AI
+        # Test Groq AI
         print("AI TEST:", ask_ai("hi"), flush=True)
 
-        # Inspect page to confirm chat UI
-        await inspect_page(page)
-
-        # Keep running
+        # Keep running indefinitely
         while True:
             print("Bot is still running...", flush=True)
             await asyncio.sleep(60)
