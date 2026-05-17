@@ -2,7 +2,6 @@ import os
 import asyncio
 import traceback
 import requests
-
 from playwright.async_api import async_playwright
 
 # ==========================================
@@ -12,87 +11,89 @@ SNAP_USERNAME = os.getenv("SNAP_USERNAME")
 SNAP_PASSWORD = os.getenv("SNAP_PASSWORD")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-# Persistent session folder
+# Persistent browser profile
 USER_DATA_DIR = "/app/snap_profile"
 
-# Simple memory per user
-user_memory = {}
+
+# ==========================================
+# GROQ TEST FUNCTION
+# ==========================================
+def ask_ai(text):
+    response = requests.post(
+        "https://api.groq.com/openai/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Content-Type": "application/json"
+        },
+        json={
+            "model": "llama-3.1-8b-instant",
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You are a friendly girl named Rithu. Reply naturally in 1-2 short lines."
+                },
+                {
+                    "role": "user",
+                    "content": text
+                }
+            ]
+        },
+        timeout=30
+    )
+
+    data = response.json()
+    return data["choices"][0]["message"]["content"].strip()
 
 
 # ==========================================
-# AI FUNCTION (GROQ)
+# LOGIN FUNCTION
 # ==========================================
-def ask_ai(user_id, text):
-    try:
-        if not GROQ_API_KEY:
-            return "My brain is offline right now 😅"
+async def login_if_needed(page):
+    print("Checking login status...", flush=True)
 
-        if user_id not in user_memory:
-            user_memory[user_id] = []
+    # Already logged in
+    if "login" not in page.url.lower():
+        print("Already logged in.", flush=True)
+        return
 
-        # Save user message
-        user_memory[user_id].append({
-            "role": "user",
-            "content": text
-        })
+    print("Login required.", flush=True)
 
-        # Keep last 6 messages
-        user_memory[user_id] = user_memory[user_id][-6:]
+    # Try common selectors for username field
+    username_selectors = [
+        'input[name="username"]',
+        'input[type="text"]'
+    ]
 
-        system_prompt = {
-            "role": "system",
-            "content": """
-You are Rithu Sharma, a 23-year-old girl.
+    username_selector = None
 
-Personality:
-- Funny and playful
-- Friendly and warm
-- Natural human texting style
-- Sometimes teasing
-- Not robotic
+    for selector in username_selectors:
+        try:
+            await page.wait_for_selector(selector, timeout=5000)
+            username_selector = selector
+            break
+        except:
+            pass
 
-Rules:
-- Keep replies short (1-2 lines)
-- Sometimes ask questions back
-- Never sound like an AI assistant
-"""
-        }
+    if not username_selector:
+        raise Exception("Could not find username field.")
 
-        messages = [system_prompt] + user_memory[user_id]
+    print("Entering username...", flush=True)
+    await page.fill(username_selector, SNAP_USERNAME)
 
-        response = requests.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {GROQ_API_KEY}",
-                "Content-Type": "application/json"
-            },
-            json={
-                "model": "llama-3.1-8b-instant",
-                "messages": messages,
-                "temperature": 0.9
-            },
-            timeout=30
-        )
+    print("Entering password...", flush=True)
+    await page.fill('input[type="password"]', SNAP_PASSWORD)
 
-        data = response.json()
+    print("Submitting login form...", flush=True)
+    await page.click('button[type="submit"]')
 
-        if "choices" not in data:
-            print("GROQ ERROR:", data)
-            return "Hmm, I got distracted 😅"
+    print("Waiting for login to complete...", flush=True)
+    await page.wait_for_timeout(20000)
 
-        reply = data["choices"][0]["message"]["content"].strip()
+    print("Current URL after login:", page.url, flush=True)
 
-        # Save assistant reply
-        user_memory[user_id].append({
-            "role": "assistant",
-            "content": reply
-        })
-
-        return reply
-
-    except Exception as e:
-        print("AI ERROR:", e)
-        return "Oops, my brain lagged for a second 😭"
+    # Save session state
+    await page.context.storage_state(path="/app/storage_state.json")
+    print("Session saved.", flush=True)
 
 
 # ==========================================
@@ -108,8 +109,6 @@ async def main():
     if not GROQ_API_KEY:
         raise ValueError("GROQ_API_KEY is missing.")
 
-    print("All environment variables loaded.", flush=True)
-
     async with async_playwright() as p:
         print("Launching persistent browser...", flush=True)
 
@@ -122,22 +121,22 @@ async def main():
         page = context.pages[0] if context.pages else await context.new_page()
 
         print("Opening Snapchat Web...", flush=True)
-
         await page.goto(
             "https://web.snapchat.com",
             wait_until="networkidle",
             timeout=180000
         )
 
-        print("Snapchat opened successfully.", flush=True)
         print("Title:", await page.title(), flush=True)
         print("URL:", page.url, flush=True)
 
-        # Test AI
-        test_reply = ask_ai("test_user", "hi")
-        print("AI TEST REPLY:", test_reply, flush=True)
+        # Login if needed
+        await login_if_needed(page)
 
-        # Keep alive
+        # Test AI
+        print("AI TEST:", ask_ai("hi"), flush=True)
+
+        # Keep running
         while True:
             print("Bot is still running...", flush=True)
             await asyncio.sleep(60)
