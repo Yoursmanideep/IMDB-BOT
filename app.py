@@ -11,12 +11,11 @@ SNAP_USERNAME = os.getenv("SNAP_USERNAME")
 SNAP_PASSWORD = os.getenv("SNAP_PASSWORD")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-# Persistent browser profile
 USER_DATA_DIR = "/app/snap_profile"
 
 
 # ==========================================
-# GROQ TEST FUNCTION
+# AI FUNCTION
 # ==========================================
 def ask_ai(text):
     response = requests.post(
@@ -30,7 +29,7 @@ def ask_ai(text):
             "messages": [
                 {
                     "role": "system",
-                    "content": "You are a friendly girl named Rithu. Reply naturally in 1-2 short lines."
+                    "content": "You are Rithu, a friendly girl. Reply naturally in 1-2 short lines."
                 },
                 {
                     "role": "user",
@@ -46,54 +45,64 @@ def ask_ai(text):
 
 
 # ==========================================
-# LOGIN FUNCTION
+# LOGIN CHECK
 # ==========================================
 async def login_if_needed(page):
     print("Checking login status...", flush=True)
 
-    # Already logged in
     if "login" not in page.url.lower():
         print("Already logged in.", flush=True)
         return
 
-    print("Login required.", flush=True)
+    raise Exception("Login page detected. Session not saved correctly.")
 
-    # Try common selectors for username field
-    username_selectors = [
-        'input[name="username"]',
-        'input[type="text"]'
-    ]
 
-    username_selector = None
+# ==========================================
+# FIND CHATS
+# ==========================================
+async def inspect_chats(page):
+    print("Inspecting chat list...", flush=True)
 
-    for selector in username_selectors:
-        try:
-            await page.wait_for_selector(selector, timeout=5000)
-            username_selector = selector
+    # Wait for Snapchat UI to settle
+    await page.wait_for_timeout(15000)
+
+    # Save screenshot for debugging
+    await page.screenshot(path="/app/chat_debug.png")
+    print("Screenshot saved: /app/chat_debug.png", flush=True)
+
+    # Get visible text on page
+    all_text = await page.locator("body").inner_text()
+
+    print("===== PAGE TEXT (FIRST 3000 CHARS) =====", flush=True)
+    print(all_text[:3000], flush=True)
+    print("===== END PAGE TEXT =====", flush=True)
+
+    # Try to collect clickable items that may be chats
+    buttons = await page.locator('button, a, [role="button"]').all_inner_texts()
+
+    print("===== POSSIBLE CHAT ITEMS =====", flush=True)
+
+    count = 0
+    seen = set()
+
+    for item in buttons:
+        item = item.strip()
+
+        if len(item) < 2:
+            continue
+
+        if item in seen:
+            continue
+
+        seen.add(item)
+
+        print(item, flush=True)
+        count += 1
+
+        if count >= 10:
             break
-        except:
-            pass
 
-    if not username_selector:
-        raise Exception("Could not find username field.")
-
-    print("Entering username...", flush=True)
-    await page.fill(username_selector, SNAP_USERNAME)
-
-    print("Entering password...", flush=True)
-    await page.fill('input[type="password"]', SNAP_PASSWORD)
-
-    print("Submitting login form...", flush=True)
-    await page.click('button[type="submit"]')
-
-    print("Waiting for login to complete...", flush=True)
-    await page.wait_for_timeout(20000)
-
-    print("Current URL after login:", page.url, flush=True)
-
-    # Save session state
-    await page.context.storage_state(path="/app/storage_state.json")
-    print("Session saved.", flush=True)
+    print("===== END CHAT ITEMS =====", flush=True)
 
 
 # ==========================================
@@ -101,13 +110,6 @@ async def login_if_needed(page):
 # ==========================================
 async def main():
     print("Starting Snapchat AI Bot...", flush=True)
-
-    if not SNAP_USERNAME:
-        raise ValueError("SNAP_USERNAME is missing.")
-    if not SNAP_PASSWORD:
-        raise ValueError("SNAP_PASSWORD is missing.")
-    if not GROQ_API_KEY:
-        raise ValueError("GROQ_API_KEY is missing.")
 
     async with async_playwright() as p:
         print("Launching persistent browser...", flush=True)
@@ -121,6 +123,7 @@ async def main():
         page = context.pages[0] if context.pages else await context.new_page()
 
         print("Opening Snapchat Web...", flush=True)
+
         await page.goto(
             "https://web.snapchat.com",
             wait_until="networkidle",
@@ -130,11 +133,12 @@ async def main():
         print("Title:", await page.title(), flush=True)
         print("URL:", page.url, flush=True)
 
-        # Login if needed
         await login_if_needed(page)
 
-        # Test AI
         print("AI TEST:", ask_ai("hi"), flush=True)
+
+        # NEW STEP: inspect chats
+        await inspect_chats(page)
 
         # Keep running
         while True:
