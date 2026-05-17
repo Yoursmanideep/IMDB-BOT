@@ -72,118 +72,86 @@ async def login_if_needed(page):
 
     body_text = await page.locator("body").inner_text()
 
-    # If login page is visible, attempt login
     if "Log in to Snapchat" in body_text:
         print("Login page detected.", flush=True)
 
-        # Try to auto-fill login form if possible
         try:
-            print("Trying to locate username field...", flush=True)
+            print("Locating all input fields...", flush=True)
 
-            selectors = [
-                'input[placeholder="Username or email address"]',
-                'input[type="email"]',
-                'input[type="text"]'
-            ]
+            # Get all input elements currently visible
+            inputs = page.locator("input")
+            count = await inputs.count()
 
-            username_selector = None
+            print(f"Found {count} input fields.", flush=True)
 
-            for selector in selectors:
+            username_filled = False
+
+            # Try every input until one accepts the username
+            for i in range(count):
                 try:
-                    await page.wait_for_selector(
-                        selector,
-                        timeout=5000
-                    )
-                    username_selector = selector
+                    field = inputs.nth(i)
+                    input_type = await field.get_attribute("type")
+                    placeholder = await field.get_attribute("placeholder")
+
                     print(
-                        f"Found username field: {selector}",
+                        f"Input {i}: type={input_type}, placeholder={placeholder}",
                         flush=True
                     )
+
+                    # Skip password fields
+                    if input_type == "password":
+                        continue
+
+                    # Try filling username
+                    await field.fill(SNAP_USERNAME)
+                    username_filled = True
+                    print(f"Username entered into input {i}.", flush=True)
                     break
-                except:
+
+                except Exception:
                     pass
 
-            if username_selector:
-                print("Entering username...", flush=True)
-                await page.fill(
-                    username_selector,
-                    SNAP_USERNAME
-                )
+            if not username_filled:
+                print("Could not find a usable username field.", flush=True)
+            else:
+                # Fill password
+                print("Locating password field...", flush=True)
+                await page.fill('input[type="password"]', SNAP_PASSWORD)
+                print("Password entered.", flush=True)
 
-                print(
-                    "Waiting for password field...",
-                    flush=True
-                )
-                await page.wait_for_selector(
-                    'input[type="password"]',
-                    timeout=10000
-                )
-
-                print("Entering password...", flush=True)
-                await page.fill(
-                    'input[type="password"]',
-                    SNAP_PASSWORD
-                )
-
-                print("Clicking Log in...", flush=True)
-                await page.locator(
-                    'button:has-text("Log in")'
-                ).first.click()
-
+                # Click Log In button
+                print("Clicking Log In button...", flush=True)
+                await page.locator('button:has-text("Log in")').first.click()
                 print("Login submitted.", flush=True)
 
         except Exception as e:
-            print(
-                "Could not auto-fill login form:",
-                str(e),
-                flush=True
-            )
+            print("Login automation error:", str(e), flush=True)
 
-        print(
-            "Waiting up to 5 minutes for Snapchat verification...",
-            flush=True
-        )
-        print(
-            "Approve the login request on your phone if asked.",
-            flush=True
-        )
-# ==========================================
-# PART 2 OF 2 — Verification Wait and Main
-# ==========================================
+        print("Waiting up to 5 minutes for Snapchat verification...", flush=True)
+        print("Approve the login request on your phone if Snapchat asks.", flush=True)
 
-        # Wait up to 5 minutes (60 × 5 seconds)
+        # Wait up to 5 minutes
         for i in range(60):
             await page.wait_for_timeout(5000)
 
             try:
-                current_text = await page.locator(
-                    "body"
-                ).inner_text()
+                current_text = await page.locator("body").inner_text()
             except:
                 current_text = ""
 
-            # Login successful when login page disappears
+            # Login succeeds when login page disappears
             if "Log in to Snapchat" not in current_text:
                 print("Login successful!", flush=True)
                 print("Current URL:", page.url, flush=True)
                 return
 
-            # Progress update every 30 seconds
             if (i + 1) % 6 == 0:
-                elapsed = (i + 1) * 5
                 print(
-                    f"Still waiting... {elapsed} seconds",
+                    f"Still waiting... {(i + 1) * 5} seconds",
                     flush=True
                 )
 
-        print(
-            "Login not completed within 5 minutes.",
-            flush=True
-        )
-        print(
-            "Snapchat may require additional verification.",
-            flush=True
-        )
+        print("Login not completed within 5 minutes.", flush=True)
         return
 
     print("Already logged in.", flush=True)
