@@ -23,6 +23,8 @@ async def main():
             args=["--no-sandbox"]
         )
 
+        print("Browser launched.", flush=True)
+
         context = await browser.new_context()
         page = await context.new_page()
 
@@ -34,41 +36,13 @@ async def main():
             timeout=180000
         )
 
-        print("Page opened.", flush=True)
+        print("Page opened successfully.", flush=True)
         print("Title:", await page.title(), flush=True)
         print("URL:", page.url, flush=True)
 
-        # Save screenshot for debugging
         await page.screenshot(path="snapchat_debug.png")
-        print("Screenshot saved: snapchat_debug.png", flush=True)
+        print("Screenshot saved.", flush=True)
 
-        # Wait a bit more
-        await page.wait_for_timeout(10000)
-
-        # Try several possible selectors
-        selectors = [
-            'input[name="username"]',
-            'input[type="text"]',
-            'input[placeholder*="Username"]',
-            'input[placeholder*="Email"]'
-        ]
-
-        found = False
-
-        for selector in selectors:
-            try:
-                print(f"Trying selector: {selector}", flush=True)
-                await page.wait_for_selector(selector, timeout=5000)
-                print(f"Found selector: {selector}", flush=True)
-                found = True
-                break
-            except:
-                print(f"Not found: {selector}", flush=True)
-
-        if not found:
-            print("No login field found.", flush=True)
-
-        # Keep container alive
         while True:
             print("Bot is still running...", flush=True)
             await asyncio.sleep(60)
