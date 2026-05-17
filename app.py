@@ -82,15 +82,18 @@ async def inspect_page(page):
 
     await page.wait_for_timeout(15000)
 
+    # Save screenshot for debugging
     await page.screenshot(path="/app/chat_debug.png")
     print("Screenshot saved: /app/chat_debug.png", flush=True)
 
+    # Extract visible page text
     all_text = await page.locator("body").inner_text()
 
     print("===== PAGE TEXT (FIRST 3000 CHARS) =====", flush=True)
     print(all_text[:3000], flush=True)
     print("===== END PAGE TEXT =====", flush=True)
 
+    # Extract possible clickable items
     buttons = await page.locator('button, a, [role="button"]').all_inner_texts()
 
     print("===== POSSIBLE CHAT ITEMS =====", flush=True)
@@ -165,14 +168,15 @@ async def main():
 
         print("Opening Snapchat Web...", flush=True)
 
+        # IMPORTANT: use domcontentloaded instead of networkidle
         await page.goto(
-        "https://web.snapchat.com",
-        wait_until="domcontentloaded",
-         timeout=120000
-  )
+            "https://web.snapchat.com",
+            wait_until="domcontentloaded",
+            timeout=120000
+        )
 
-# Give the page extra time to finish rendering
-await page.wait_for_timeout(15000)
+        # Allow extra time for the app to render
+        await page.wait_for_timeout(15000)
 
         print("Title:", await page.title(), flush=True)
         print("URL:", page.url, flush=True)
