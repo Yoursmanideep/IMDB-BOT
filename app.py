@@ -166,10 +166,13 @@ async def main():
         print("Opening Snapchat Web...", flush=True)
 
         await page.goto(
-            "https://web.snapchat.com",
-            wait_until="networkidle",
-            timeout=180000
-        )
+        "https://web.snapchat.com",
+        wait_until="domcontentloaded",
+         timeout=120000
+  )
+
+# Give the page extra time to finish rendering
+await page.wait_for_timeout(15000)
 
         print("Title:", await page.title(), flush=True)
         print("URL:", page.url, flush=True)
