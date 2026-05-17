@@ -4,20 +4,13 @@ import traceback
 import requests
 from playwright.async_api import async_playwright
 
-# ==========================================
-# ENV VARIABLES
-# ==========================================
 SNAP_USERNAME = os.getenv("SNAP_USERNAME")
 SNAP_PASSWORD = os.getenv("SNAP_PASSWORD")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-# Persistent browser profile
 USER_DATA_DIR = "/app/snap_profile"
 
 
-# ==========================================
-# AI FUNCTION (GROQ)
-# ==========================================
 def ask_ai(text):
     try:
         response = requests.post(
@@ -34,7 +27,7 @@ def ask_ai(text):
                         "content": (
                             "You are Rithu, a 23-year-old girl. "
                             "You are playful, warm, funny, and natural. "
-                            "Reply like a real human texter in 1-2 short lines."
+                            "Reply in 1-2 short lines."
                         )
                     },
                     {
@@ -60,70 +53,47 @@ def ask_ai(text):
         return "Oops 😅"
 
 
-# ==========================================
-# LOGIN CHECK
-# ==========================================
 async def login_if_needed(page):
     print("Checking login status...", flush=True)
 
-    # If URL does not contain "login", assume session is active
-    if "login" not in page.url.lower():
-        print("Already logged in.", flush=True)
+    body_text = await page.locator("body").inner_text()
+
+    # If login page is visible, attempt login
+    if "Log in to Snapchat" in body_text:
+        print("Login page detected.", flush=True)
+
+        # Wait for username field
+        await page.wait_for_selector('input[type="text"]', timeout=30000)
+
+        print("Entering username...", flush=True)
+        await page.fill('input[type="text"]', SNAP_USERNAME)
+
+        print("Entering password...", flush=True)
+        await page.fill('input[type="password"]', SNAP_PASSWORD)
+
+        print("Clicking Log in...", flush=True)
+        await page.click('button:has-text("Log in")')
+
+        print("Waiting for login to complete...", flush=True)
+
+        # Wait up to 60 seconds for the login page text to disappear
+        for i in range(12):
+            await page.wait_for_timeout(5000)
+
+            current_text = await page.locator("body").inner_text()
+
+            if "Log in to Snapchat" not in current_text:
+                print("Login successful.", flush=True)
+                return
+
+            print(f"Still waiting... ({(i + 1) * 5}s)", flush=True)
+
+        print("Login may require verification (email/CAPTCHA).", flush=True)
         return
 
-    print("Login page detected. Manual login may be required.", flush=True)
+    print("Already logged in.", flush=True)
 
 
-# ==========================================
-# INSPECT PAGE
-# ==========================================
-async def inspect_page(page):
-    print("Inspecting page...", flush=True)
-
-    await page.wait_for_timeout(15000)
-
-    # Save screenshot for debugging
-    await page.screenshot(path="/app/chat_debug.png")
-    print("Screenshot saved: /app/chat_debug.png", flush=True)
-
-    # Extract visible page text
-    all_text = await page.locator("body").inner_text()
-
-    print("===== PAGE TEXT (FIRST 3000 CHARS) =====", flush=True)
-    print(all_text[:3000], flush=True)
-    print("===== END PAGE TEXT =====", flush=True)
-
-    # Extract possible clickable items
-    buttons = await page.locator('button, a, [role="button"]').all_inner_texts()
-
-    print("===== POSSIBLE CHAT ITEMS =====", flush=True)
-
-    seen = set()
-    count = 0
-
-    for item in buttons:
-        item = item.strip()
-
-        if len(item) < 2:
-            continue
-
-        if item in seen:
-            continue
-
-        seen.add(item)
-
-        print(item, flush=True)
-        count += 1
-
-        if count >= 20:
-            break
-
-    print("===== END CHAT ITEMS =====", flush=True)
-
-
-# ==========================================
-# MAIN
-# ==========================================
 async def main():
     print("Starting Snapchat AI Bot...", flush=True)
 
@@ -134,12 +104,9 @@ async def main():
     if not GROQ_API_KEY:
         raise ValueError("GROQ_API_KEY is missing.")
 
-    print("All environment variables loaded.", flush=True)
-
     async with async_playwright() as p:
         print("Launching persistent browser...", flush=True)
 
-        # Launch browser with anti-detection settings
         context = await p.chromium.launch_persistent_context(
             USER_DATA_DIR,
             headless=True,
@@ -157,7 +124,6 @@ async def main():
             ]
         )
 
-        # Hide webdriver flag
         await context.add_init_script("""
         Object.defineProperty(navigator, 'webdriver', {
             get: () => undefined
@@ -168,28 +134,31 @@ async def main():
 
         print("Opening Snapchat Web...", flush=True)
 
-        # IMPORTANT: use domcontentloaded instead of networkidle
         await page.goto(
             "https://web.snapchat.com",
             wait_until="domcontentloaded",
             timeout=120000
         )
 
-        # Allow extra time for the app to render
         await page.wait_for_timeout(15000)
 
         print("Title:", await page.title(), flush=True)
         print("URL:", page.url, flush=True)
 
+        # Attempt login if needed
         await login_if_needed(page)
+
+        # Save screenshot after login attempt
+        await page.screenshot(path="/app/after_login.png")
+        print("Saved screenshot: /app/after_login.png", flush=True)
+
+        # Print final page state
+        print("Final Title:", await page.title(), flush=True)
+        print("Final URL:", page.url, flush=True)
 
         # Test AI
         print("AI TEST:", ask_ai("hi"), flush=True)
 
-        # Inspect page contents
-        await inspect_page(page)
-
-        # Keep bot running
         while True:
             print("Bot is still running...", flush=True)
             await asyncio.sleep(60)
