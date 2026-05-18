@@ -1,11 +1,11 @@
 # ==========================================
-# PART 1 OF 2 — Snapchat AI Bot
-# Imports, Configuration, AI, and Login
+# PART 1 OF 3 — Imports, Config, ZIP Extraction
 # ==========================================
 
 import os
 import asyncio
 import traceback
+import zipfile
 import requests
 from playwright.async_api import async_playwright
 
@@ -16,9 +16,55 @@ SNAP_USERNAME = os.getenv("SNAP_USERNAME")
 SNAP_PASSWORD = os.getenv("SNAP_PASSWORD")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-# Persistent browser profile
+# ZIP file uploaded to GitHub
+PROFILE_ZIP = "snap_profile.zip"
+
+# Persistent browser profile location used by Playwright
 USER_DATA_DIR = "/app/snap_profile"
 
+
+# ==========================================
+# EXTRACT AUTHENTICATED SNAPCHAT SESSION
+# ==========================================
+def extract_snap_profile():
+    try:
+        # If already extracted, skip
+        if os.path.exists(os.path.join(USER_DATA_DIR, "Default")):
+            print("snap_profile already extracted.", flush=True)
+            return
+
+        # ZIP file missing
+        if not os.path.exists(PROFILE_ZIP):
+            print("snap_profile.zip not found.", flush=True)
+            return
+
+        print("Extracting snap_profile.zip...", flush=True)
+
+        # Remove empty directory if it exists
+        if os.path.exists(USER_DATA_DIR):
+            try:
+                import shutil
+                shutil.rmtree(USER_DATA_DIR)
+            except:
+                pass
+
+        # Extract ZIP into /app
+        # Since ZIP contains the folder "snap_profile",
+        # this creates /app/snap_profile/...
+        with zipfile.ZipFile(PROFILE_ZIP, "r") as zip_ref:
+            zip_ref.extractall("/app")
+
+        print("snap_profile extracted successfully.", flush=True)
+
+    except Exception as e:
+        print(
+            "Failed to extract snap_profile.zip:",
+            str(e),
+            flush=True
+        )
+# ==========================================
+# PART 2 OF 3 — AI FUNCTION AND LOGIN
+# ==========================================
 
 # ==========================================
 # AI FUNCTION (GROQ)
@@ -73,167 +119,26 @@ async def login_if_needed(page):
 
     body_text = await page.locator("body").inner_text()
 
+    # If login page is still visible, the saved session was not restored
     if "Log in to Snapchat" in body_text:
-        print("Login page detected.", flush=True)
-
-        try:
-            print("Locating all input fields...", flush=True)
-
-            inputs = page.locator("input")
-            count = await inputs.count()
-
-            print(f"Found {count} input fields.", flush=True)
-
-            username_field = None
-
-            # Find visible non-search text field
-            for i in range(count):
-                try:
-                    field = inputs.nth(i)
-                    input_type = await field.get_attribute("type")
-                    placeholder = await field.get_attribute("placeholder")
-
-                    print(
-                        f"Input {i}: type={input_type}, "
-                        f"placeholder={placeholder}",
-                        flush=True
-                    )
-
-                    # Ignore search box
-                    if placeholder == "Search":
-                        continue
-
-                    # Ignore password fields
-                    if input_type == "password":
-                        continue
-
-                    username_field = field
-                    print(
-                        f"Using input {i} as username field.",
-                        flush=True
-                    )
-                    break
-
-                except Exception:
-                    pass
-
-            if username_field is None:
-                print("No suitable username field found.", flush=True)
-            else:
-                print("Entering username...", flush=True)
-                await username_field.click()
-                await username_field.fill(SNAP_USERNAME)
-
-                print("Submitting username step...", flush=True)
-                await username_field.press("Enter")
-
-                # Wait for password field to appear
-                await page.wait_for_timeout(5000)
-
-                password_locator = page.locator(
-                    'input[type="password"]'
-                )
-
-                if await password_locator.count() > 0:
-                    print("Password field detected.", flush=True)
-
-                    await password_locator.first.fill(
-                        SNAP_PASSWORD
-                    )
-
-                    print("Password entered.", flush=True)
-
-# ==========================================
-# PART 2 OF 2 — Finish Login and Main
-# ==========================================
-
-                    print("Submitting password step...", flush=True)
-                    await password_locator.first.press("Enter")
-
-                    # Optional extra click if Log In button is visible
-                    try:
-                        await page.locator(
-                            'button:has-text("Log in")'
-                        ).first.click(timeout=3000)
-                        print("Clicked Log In button.", flush=True)
-                    except:
-                        pass
-
-                    print("Login submitted.", flush=True)
-                else:
-                    print(
-                        "Password field did not appear yet.",
-                        flush=True
-                    )
-
-        except Exception as e:
-            print("Login automation error:", str(e), flush=True)
-
-        print(
-            "Waiting up to 5 minutes for Snapchat verification...",
-            flush=True
-        )
-        print(
-            "Approve the request in your Snapchat mobile app.",
-            flush=True
-        )
-
-        # Wait up to 5 minutes (60 × 5 seconds)
-        for i in range(60):
-            await page.wait_for_timeout(5000)
-
-            try:
-                current_text = await page.locator(
-                    "body"
-                ).inner_text()
-            except:
-                current_text = ""
-
-            # Detect verification screen
-            if "Is This You?" in current_text:
-                print(
-                    "Verification prompt detected! "
-                    "Check your phone now.",
-                    flush=True
-                )
-
-            # Successful login when login text disappears
-            if "Log in to Snapchat" not in current_text:
-                print("Login successful!", flush=True)
-                print("Current URL:", page.url, flush=True)
-                return
-
-            # Progress update every 30 seconds
-            if (i + 1) % 6 == 0:
-                elapsed = (i + 1) * 5
-                print(
-                    f"Still waiting... {elapsed} seconds",
-                    flush=True
-                )
-
-        print(
-            "Login not completed within 5 minutes.",
-            flush=True
-        )
+        print("Login page detected. Saved session was not restored.", flush=True)
         return
 
-    print("Already logged in.", flush=True)
-
-
+    print("Already logged in using saved snap_profile.", flush=True)
 # ==========================================
-# MAIN
+# PART 3 OF 3 — MAIN
 # ==========================================
+
 async def main():
     print("Starting Snapchat AI Bot...", flush=True)
 
-    if not SNAP_USERNAME:
-        raise ValueError("SNAP_USERNAME is missing.")
-    if not SNAP_PASSWORD:
-        raise ValueError("SNAP_PASSWORD is missing.")
     if not GROQ_API_KEY:
         raise ValueError("GROQ_API_KEY is missing.")
 
     print("All environment variables loaded.", flush=True)
+
+    # Extract the authenticated session from snap_profile.zip
+    extract_snap_profile()
 
     async with async_playwright() as p:
         print("Launching persistent browser...", flush=True)
@@ -276,23 +181,24 @@ async def main():
             timeout=120000
         )
 
+        # Give the app time to load
         await page.wait_for_timeout(15000)
 
         print("Title:", await page.title(), flush=True)
         print("URL:", page.url, flush=True)
 
-        # Perform login and wait for phone verification
+        # Verify that the saved session is working
         await login_if_needed(page)
 
-        # Save screenshot after login attempt
+        # Save screenshot for debugging
         await page.screenshot(path="/app/after_login.png")
         print("Saved screenshot: /app/after_login.png", flush=True)
 
-        # Final page state
+        # Final state
         print("Final Title:", await page.title(), flush=True)
         print("Final URL:", page.url, flush=True)
 
-        # Test AI connection
+        # Test Groq AI
         print("AI TEST:", ask_ai("hi"), flush=True)
 
         # Keep process alive
