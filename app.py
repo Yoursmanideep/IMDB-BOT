@@ -125,15 +125,24 @@ def ask_ai(text):
 # 7. Wait for "Is This You?" verification
 # 8. Wait until login completes
 
+# Replace ONLY the login_if_needed() function in app.py
+# This version uses a robust approach:
+# 1. Finds ALL input fields
+# 2. Ignores Search and hidden fields
+# 3. Types username
+# 4. Waits for password field
+# 5. Types password
+# 6. Waits for verification and successful login
+
 async def login_if_needed(page):
     print("Checking login status...", flush=True)
 
-    # Give page time to render
-    await page.wait_for_timeout(5000)
+    # Let page fully render
+    await page.wait_for_timeout(10000)
 
     body_text = await page.locator("body").inner_text()
 
-    # If login page is NOT visible, assume already logged in
+    # Already logged in
     if "Log in to Snapchat" not in body_text:
         print("Already logged in.", flush=True)
         return
@@ -142,38 +151,64 @@ async def login_if_needed(page):
 
     try:
         # ==========================================
-        # STEP 1: FIND USERNAME FIELD
+        # STEP 1: FIND ALL INPUTS
         # ==========================================
-        print("Finding username field...", flush=True)
+        print("Locating all input fields...", flush=True)
 
-        username_selectors = [
-            'input[placeholder="Username or email address"]',
-            'input[name="username"]',
-            'input[type="text"]'
-        ]
+        inputs = page.locator("input")
+        count = await inputs.count()
+
+        print(f"Found {count} input fields.", flush=True)
 
         username_field = None
 
-        for selector in username_selectors:
+        # ==========================================
+        # STEP 2: FIND REAL USERNAME FIELD
+        # ==========================================
+        for i in range(count):
             try:
-                locator = page.locator(selector).first
-                await locator.wait_for(timeout=5000)
+                field = inputs.nth(i)
 
-                placeholder = await locator.get_attribute("placeholder")
+                # Skip invisible fields
+                if not await field.is_visible():
+                    continue
+
+                input_type = await field.get_attribute("type")
+                placeholder = await field.get_attribute("placeholder")
+                value = await field.input_value()
+
+                print(
+                    f"Input {i}: "
+                    f"type={input_type}, "
+                    f"placeholder={placeholder}, "
+                    f"value={value}",
+                    flush=True
+                )
+
+                # Skip search box
                 if placeholder == "Search":
                     continue
 
-                username_field = locator
-                print(f"Using selector: {selector}", flush=True)
+                # Skip password fields
+                if input_type == "password":
+                    continue
+
+                # Skip fields that already contain text
+                if value and value.strip():
+                    continue
+
+                username_field = field
+                print(f"Using input {i} as username field.", flush=True)
                 break
-            except:
+
+            except Exception:
                 pass
 
         if username_field is None:
-            raise Exception("Could not find username field.")
+            raise Exception("No usable username field found.")
 
         # ==========================================
-        # STEP 2: ENTER USERNAME
+        # STEP 3: ENTER USERNAME
         # ==========================================
         print("Entering username...", flush=True)
         await username_field.click()
@@ -181,19 +216,13 @@ async def login_if_needed(page):
         await username_field.type(SNAP_USERNAME, delay=100)
 
         # ==========================================
-        # STEP 3: SUBMIT USERNAME
+        # STEP 4: SUBMIT USERNAME
         # ==========================================
         print("Submitting username...", flush=True)
         await username_field.press("Enter")
 
-        # Wait for next screen
-        await page.wait_for_timeout(5000)
-
-        # ==========================================
-        # STEP 4: WAIT FOR PASSWORD FIELD
-        # ==========================================
+        # Wait for password field to appear
         print("Waiting for password field...", flush=True)
-
         password_field = page.locator('input[type="password"]').first
         await password_field.wait_for(timeout=30000)
 
@@ -213,10 +242,11 @@ async def login_if_needed(page):
         print("Submitting password...", flush=True)
         await password_field.press("Enter")
 
-        # Optional click if button still visible
+        # Optional button click
         try:
-            login_button = page.locator('button:has-text("Log in")').first
-            await login_button.click(timeout=3000)
+            await page.locator(
+                'button:has-text("Log in")'
+            ).first.click(timeout=3000)
             print("Clicked Log In button.", flush=True)
         except:
             pass
@@ -228,10 +258,9 @@ async def login_if_needed(page):
         return
 
     # ==========================================
-    # STEP 7: WAIT FOR VERIFICATION
+    # STEP 7: WAIT FOR VERIFICATION / LOGIN
     # ==========================================
-    print("Waiting for verification on your phone...", flush=True)
-    print("If Snapchat sends 'Is This You?', approve it.", flush=True)
+    print("Waiting for phone verification...", flush=True)
 
     for i in range(60):  # 5 minutes
         await page.wait_for_timeout(5000)
@@ -241,32 +270,33 @@ async def login_if_needed(page):
         except:
             current_text = ""
 
-        # Detect verification screen
         if "Is This You?" in current_text:
-            print("Verification prompt detected. Check your phone NOW.", flush=True)
+            print(
+                "Verification prompt detected. "
+                "Approve it on your phone.",
+                flush=True
+            )
 
         if "Verifying Your Request" in current_text:
-            print("Verification request is being processed.", flush=True)
+            print(
+                "Snapchat is verifying your request.",
+                flush=True
+            )
 
-        # Detect successful login
-        if (
-            "Log in to Snapchat" not in current_text
-            and "Verifying Your Request" not in current_text
-            and "Is This You?" not in current_text
-        ):
+        # Login successful when login page disappears
+        if "Log in to Snapchat" not in current_text:
             print("Login successful!", flush=True)
             print("Current URL:", page.url, flush=True)
             return
 
-        # Progress update every 30 seconds
         if (i + 1) % 6 == 0:
             elapsed = (i + 1) * 5
-            print(f"Still waiting... {elapsed} seconds", flush=True)
+            print(
+                f"Still waiting... {elapsed} seconds",
+                flush=True
+            )
 
     print("Login did not complete within 5 minutes.", flush=True)
-# ==========================================
-# PART 3 OF 3 — MAIN
-# ==========================================
 
 async def main():
     print("Starting Snapchat AI Bot...", flush=True)
